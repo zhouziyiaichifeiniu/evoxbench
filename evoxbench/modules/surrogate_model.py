@@ -126,6 +126,7 @@ class AirFoilMLPPredictor(SurrogateModel):
             # model['normalization_factor'] = weight['normalization_factor']
             models.append(model)
 
+        self.layers = len(model['activation']) + 1
         self.models = models
 
     @property
@@ -135,16 +136,28 @@ class AirFoilMLPPredictor(SurrogateModel):
     def fit(self, X, **kwargs):
         raise NotImplementedError
 
+    def tanh(self, x):
+        return np.tanh(x)
+
+    def relu(self, x):
+        return np.maximum(0, x)
+
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
     def forward(self, X, model):
-        for i in range(1, 3):
-            X = np.matmul(X, model['w{}'.format(i)].transpose()) + model['b{}'.format(i)][None, :]
-            X = np.maximum(X, 0)
+        for i in range(1, self.layers):
+            X = np.matmul(X, model['w{}'.format(i)].transpose()) +model['b{}'.format(i)][None, :]
 
-        X = np.matmul(X, model['w3'].transpose()) + model['b3'][None, :]
-        X = 1 / (1 + np.exp(-X))
+            if model['activation'][i - 1] == 'Tanh':
+                X = self.tanh(X)
+            elif model['activation'][i - 1] == 'Relu':
+                X = self.relu(X)
+            elif model['activation'][i - 1] == 'Sigmoid':
+                X = self.sigmoid(X)
+        print(self.layers)
+        X = np.matmul(X, model['w{}'.format(self.layers)].transpose()) + model['b{}'.format(self.layers)][None, :]
 
-        X = np.matmul(X, model['w4'].transpose())
-        X += model['b4'][None, :]
         return X
 
     def predict(self, features, **kwargs):
@@ -187,7 +200,7 @@ if __name__ == '__main__':
     # with open('/Users/luzhicha/Dropbox/2022/EvoXBench/python_codes/data/mnv3/acc_predictor.json', 'w') as fp:
     #     json.dump(new_state_dict, fp)
 
-    with open("C:/Users/admin/Desktop/evoxbench/data/airfoil/501_ctr18.csv", 'r') as f:
+    with open("C:/Users/admin/Desktop/evoxbench/data/airfoil/1101_ctr20.csv", 'r') as f:
         lines = f.readlines()
 
     dataset = []
@@ -204,5 +217,5 @@ if __name__ == '__main__':
 
         dataset.append(np.array(data, dtype=np.float32))
 
-    mlp = AirFoilMLPPredictor("C:/Users/admin/Desktop/evoxbench/data/airfoil/mlp.json")
-    print(mlp.predict(dataset[0]))
+    mlp = AirFoilMLPPredictor("C:/Users/admin/Desktop/evoxbench/data/airfoil/mlp1.json")
+    print(mlp.predict(dataset))
