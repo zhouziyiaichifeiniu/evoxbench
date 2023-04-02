@@ -147,7 +147,7 @@ class AirFoilMLPPredictor(SurrogateModel):
 
     def forward(self, X, model):
         for i in range(1, self.layers):
-            X = np.matmul(X, model['w{}'.format(i)].transpose()) +model['b{}'.format(i)][None, :]
+            X = np.matmul(X, model['w{}'.format(i)].transpose()) + model['b{}'.format(i)][None, :]
 
             if model['activation'][i - 1] == 'Tanh':
                 X = self.tanh(X)
@@ -155,8 +155,14 @@ class AirFoilMLPPredictor(SurrogateModel):
                 X = self.relu(X)
             elif model['activation'][i - 1] == 'Sigmoid':
                 X = self.sigmoid(X)
+            else:
+                X = X
         print(self.layers)
-        X = np.matmul(X, model['w{}'.format(self.layers)].transpose()) + model['b{}'.format(self.layers)][None, :]
+        if model['b{}'.format(self.layers)] == 0:
+            X = np.matmul(X, model['w{}'.format(self.layers)].transpose())
+        else:
+            X = np.matmul(X,
+                          model['w{}'.format(self.layers)].transpose()) + model['b{}'.format(self.layers)][None, :]
 
         return X
 

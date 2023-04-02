@@ -2,7 +2,9 @@ import json
 import numpy as np
 from pathlib import Path
 import os
+import pandas as pd
 from evoxbench.modules import SearchSpace, Evaluator, Benchmark, AirFoilMLPPredictor
+import matplotlib.pyplot as plt
 
 __all__ = ['AirfoilSearchSpace', 'AirfoilEvaluator', 'AirfoilBenchmark']
 
@@ -33,8 +35,22 @@ def get_path(name):
 
 
 class AirfoilSearchSpace(SearchSpace):
-    def __init__(self, **kwargs):
+    def __init__(self,
+                 csv_path=get_path("20.csv"),
+                 mean_path=get_path("mean_ctr.json"),
+                 **kwargs):
         super().__init__(**kwargs)
+        self.csv_path = csv_path
+        checkpoints = json.load(open(mean_path, 'r'))
+        weights = checkpoints['state_dicts']
+
+        if not isinstance(weights, list):
+            weights = [weights]
+
+        model = {}
+        for key, values in weights[0].items():
+            model[key] = np.array(values)
+        self.model = model
 
     # initialize parameters
 
@@ -43,34 +59,55 @@ class AirfoilSearchSpace(SearchSpace):
         return 'AirfoilSearchSpace'
 
     def _sample(self):
-        mean = 0
-        std = 1e-3
-        vertical = np.random.normal(mean, std, len(abscissa))
-        samples = np.column_stack((abscissa, vertical))
+        x = np.random.randint(1, 6)
+        mean = self.model['r0{}'.format(x)][1:-1]
+        cov = self.model['cov{}'.format(x)]
+        samples = np.random.multivariate_normal(mean, cov, 1)
+        samples = np.insert(samples, 0, mean[0])
+        samples = np.insert(samples, -1, mean[-1])
+        samples = np.concatenate((abscissa.reshape(-1,1),samples.reshape(-1,1)),axis=1)
         return samples
 
     def _encode(self, sampled_points):
-        X = []
-        for p in range(1, len(sampled_points) - 1):
-            X.append(sampled_points[p][1])
+        X = [x[1] for x in sampled_points]
+        X = X[1:-1]
         return np.array(X)
 
     def _decode(self, x):
         raise NotImplementedError
 
     def visualize(self, arch):
-        raise NotImplementedError
+        data = np.array(pd.read_csv(self.csv_path,header = None))
+        points = []
+        X = []
+        Y = []
+        for i in range(len(data[0])):
+            x = 0
+            y = 0
+            for j in range(len(data)):
+                x += data[j][i] * arch[0][j][0]
+                y += data[j][i] * arch[0][j][1]
+            X.append(x)
+            Y.append(y)
+            points.append([x, y])
+        plt.figure(figsize=(13.22, 13.30))
+        plt.ylim([-0.1, 0.1])
+        plt.xlim([-0.1, 1.1])
+        plt.plot(X, Y, 'k')
+        plt.axis('off')
+        plt.show()
 
 
 class AirfoilEvaluator(Evaluator):
     def __init__(self,
-                 objs='cl/cd',
-                 model_path=get_path("mlp1.json"),
+                 objs='cl/cd&cl',
+                 cl_cd_model_path=get_path("mlp1.json"),
+                 cl_model_path=get_path("cl_mlp.json"),
                  **kwargs):
         super().__init__(objs, **kwargs)
         self.objs = objs
-
-        self.predictor = AirFoilMLPPredictor(pretrained=model_path)
+        self.cl_cd_predictor = AirFoilMLPPredictor(pretrained=cl_cd_model_path)
+        self.cl_predictor = AirFoilMLPPredictor(pretrained=cl_model_path)
 
     @property
     def name(self):
@@ -79,12 +116,19 @@ class AirfoilEvaluator(Evaluator):
     def evaluate(self, archs,
                  true_eval=False,  # query the true (mean over three runs) performance
                  **kwargs):
-        ans = self.predictor.predict(archs)
-        return ans
+
+        cl = self.cl_predictor.predict(archs)
+        cl_cd = self.cl_cd_predictor.predict(archs)
+        return [cl_cd[0][0], list(cl[0])]
+
+    def cl_visualize(self, archs):
+        x = np.arange(-2, 4.002, 0.01)
+        plt.plot(x, archs)
+        plt.show()
 
 
 class AirfoilBenchmark(Benchmark):
-    def __init__(self, objs='cl/cd', **kwargs):
+    def __init__(self, objs='cl/cd&cl', **kwargs):
         search_space = AirfoilSearchSpace()
         evaluator = AirfoilEvaluator()
         super().__init__(search_space, evaluator, **kwargs)
@@ -94,14 +138,16 @@ class AirfoilBenchmark(Benchmark):
         return 'AirfoilBenchmark'
 
     def test(self):
-        sample = self.search_space.sample(10)
+        sample = self.search_space.sample(1)
+        self.search_space.visualize(sample)
         X = self.search_space.encode(sample)
         F = self.evaluator.evaluate(X)
-
-        print()
+        #self.evaluator.cl_visualize(F[1])
         print(sample)
+        print()
         print(X)
         print(F)
+
 
 if __name__ == '__main__':
     benchmark = AirfoilBenchmark()
