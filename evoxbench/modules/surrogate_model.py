@@ -146,6 +146,13 @@ class AirFoilMLPPredictor(SurrogateModel):
         return 1 / (1 + np.exp(-x))
 
     def forward(self, X, model):
+        try:
+            if model['std_before'] is not None:
+                X = X / model['std_before'] - model['mean_before']
+                print(X)
+        except:
+            pass
+        print('---------------------------------------------')
         for i in range(1, self.layers):
             X = np.matmul(X, model['w{}'.format(i)].transpose()) + model['b{}'.format(i)][None, :]
 
@@ -158,11 +165,18 @@ class AirFoilMLPPredictor(SurrogateModel):
             else:
                 X = X
         print(self.layers)
-        if model['b{}'.format(self.layers)] == 0:
+
+        if np.all(model['b{}'.format(self.layers)] == 0):
             X = np.matmul(X, model['w{}'.format(self.layers)].transpose())
         else:
             X = np.matmul(X,
                           model['w{}'.format(self.layers)].transpose()) + model['b{}'.format(self.layers)][None, :]
+
+        try:
+            if model['std'] is not None:
+                X = X * model['std'] + model['mean']
+        except:
+            pass
 
         return X
 

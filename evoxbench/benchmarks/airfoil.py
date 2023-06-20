@@ -38,6 +38,8 @@ class AirfoilSearchSpace(SearchSpace):
     def __init__(self,
                  csv_path=get_path("20.csv"),
                  mean_path=get_path("mean_ctr.json"),
+                 cl_cyclegan_path=get_path("cl_cyclegan.json"),
+                 cl_cd_cyclegan_path=get_path("cl_cd_cyclegan.json"),
                  **kwargs):
         super().__init__(**kwargs)
         self.csv_path = csv_path
@@ -51,6 +53,8 @@ class AirfoilSearchSpace(SearchSpace):
         for key, values in weights[0].items():
             model[key] = np.array(values)
         self.model = model
+        self.cl_cyclegan = AirFoilMLPPredictor(pretrained=cl_cyclegan_path)
+        self.cl_cd_cyclegan = AirFoilMLPPredictor(pretrained=cl_cd_cyclegan_path)
 
     # initialize parameters
 
@@ -65,7 +69,7 @@ class AirfoilSearchSpace(SearchSpace):
         samples = np.random.multivariate_normal(mean, cov, 1)
         samples = np.insert(samples, 0, mean[0])
         samples = np.insert(samples, -1, mean[-1])
-        samples = np.concatenate((abscissa.reshape(-1,1),samples.reshape(-1,1)),axis=1)
+        samples = np.concatenate((abscissa.reshape(-1, 1), samples.reshape(-1, 1)), axis=1)
         return samples
 
     def _encode(self, sampled_points):
@@ -76,8 +80,23 @@ class AirfoilSearchSpace(SearchSpace):
     def _decode(self, x):
         raise NotImplementedError
 
+    def optimize(self, archs, mode):
+        nurbs = self.encode(archs)
+
+        if mode == 'cl':
+            nurbs = self.cl_cyclegan.predict(nurbs)
+        elif mode == 'cl/cd':
+
+            nurbs = self.cl_cd_cyclegan.predict(nurbs)
+
+        archs = archs[0]
+
+        for i in range(1, len(archs)-1):
+            archs[i][1] = nurbs[0][i-1]
+        return [archs]
+
     def visualize(self, arch):
-        data = np.array(pd.read_csv(self.csv_path,header = None))
+        data = np.array(pd.read_csv(self.csv_path, header=None))
         points = []
         X = []
         Y = []
@@ -100,9 +119,10 @@ class AirfoilSearchSpace(SearchSpace):
 
 class AirfoilEvaluator(Evaluator):
     def __init__(self,
-                 objs='cl/cd&cl',
-                 cl_cd_model_path=get_path("mlp1.json"),
+                 objs='cl&cl/cd',
+                 cl_cd_model_path=get_path("cl_cd_mlp.json"),
                  cl_model_path=get_path("cl_mlp.json"),
+
                  **kwargs):
         super().__init__(objs, **kwargs)
         self.objs = objs
@@ -116,10 +136,9 @@ class AirfoilEvaluator(Evaluator):
     def evaluate(self, archs,
                  true_eval=False,  # query the true (mean over three runs) performance
                  **kwargs):
-
         cl = self.cl_predictor.predict(archs)
         cl_cd = self.cl_cd_predictor.predict(archs)
-        return [cl_cd[0][0], list(cl[0])]
+        return [list(cl[0]), cl_cd[0][0]]
 
     def cl_visualize(self, archs):
         x = np.arange(-2, 4.002, 0.01)
@@ -142,9 +161,9 @@ class AirfoilBenchmark(Benchmark):
         self.search_space.visualize(sample)
         X = self.search_space.encode(sample)
         F = self.evaluator.evaluate(X)
-        #self.evaluator.cl_visualize(F[1])
+        # self.evaluator.cl_visualize(F[1])
         print(sample)
-        print()
+        self.search_space.visualize(sample)
         print(X)
         print(F)
 
